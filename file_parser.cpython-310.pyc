@@ -1,0 +1,67 @@
+def classify_document(text: str) -> dict:
+    """
+    Classify document type using keyword-based rules.
+    
+    Args:
+        text: Extracted document text
+        
+    Returns:
+        Dictionary with document_type, confidence, and matched_rules
+    """
+    text_lower = text.lower()
+    
+    # Define classification rules
+    rules = {
+        "annual_return_mgt7": [
+            "form no. mgt-7",
+            "form no.mgt-7",
+            "mgt-7",
+            "annual return",
+            "companies act, 2013",
+            "companies act 2013",
+            "registrar of companies"
+        ],
+        "financial_results_quarterly": [
+            "statement of assets and liabilities",
+            "limited review report",
+            "quarter ended",
+            "unaudited financial results",
+            "audited financial results",
+            "balance sheet",
+            "profit and loss",
+            "cash flow statement"
+        ],
+        "debt_covenant_disclosure": [
+            "asset cover",
+            "covenants/terms of the issue",
+            "covenants of the issue",
+            "listed debt securities",
+            "debt securities",
+            "non-convertible debentures",
+            "covenant compliance"
+        ]
+    }
+    
+    # Check each document type
+    best_match = {
+        "document_type": "unknown_credit_doc",
+        "confidence": 0.0,
+        "matched_rules": []
+    }
+    
+    for doc_type, keywords in rules.items():
+        matched = []
+        for keyword in keywords:
+            if keyword in text_lower:
+                matched.append(keyword)
+        
+        if matched:
+            confidence = len(matched) / len(keywords)
+            if confidence > best_match["confidence"]:
+                best_match = {
+                    "document_type": doc_type,
+                    "confidence": round(confidence, 2),
+                    "matched_rules": matched
+                }
+    
+    return best_match

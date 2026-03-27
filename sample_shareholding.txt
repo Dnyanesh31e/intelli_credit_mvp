@@ -1,0 +1,684 @@
+"""
+Intelli-Credit: Complete Enterprise Credit Underwriting Platform
+End-to-end automation with 4 stages:
+1. Entity Onboarding
+2. Intelligent Data Ingestion
+3. Automated Extraction & Schema Mapping
+4. Pre-Cognitive Secondary Analysis & Reporting
+"""
+
+import streamlit as st
+import os
+from dotenv import load_dotenv
+import json
+from datetime import datetime
+
+# Import utility modules
+from utils.file_parser import extract_text_from_file
+from utils.doc_classifier import classify_document
+from utils.llm_analyzer import analyze_document_with_llm
+from utils.entity_manager import entity_manager
+from utils.schema_manager import schema_manager
+from utils.secondary_research import conduct_secondary_research
+from utils.reasoning_engine import generate_recommendation, generate_swot_analysis
+from utils.report_generator import generate_investment_report
+from utils.risk_engine import calculate_risk_score
+from utils.cam_formatter import generate_cam_memo
+
+# Load environment variables
+load_dotenv()
+
+# Page configuration
+st.set_page_config(
+    page_title="Intelli-Credit Enterprise Platform",
+    page_icon="🏦",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: 700;
+        background: linear-gradient(90deg, #1e3a8a 0%, #3b82f6 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0.5rem;
+    }
+    .stage-header {
+        background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
+        color: white;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+    }
+    .success-box {
+        background: #d1fae5;
+        border-left: 4px solid #10b981;
+        padding: 1rem;
+        border-radius: 0.25rem;
+        margin: 1rem 0;
+    }
+    .warning-box {
+        background: #fef3c7;
+        border-left: 4px solid #f59e0b;
+        padding: 1rem;
+        border-radius: 0.25rem;
+        margin: 1rem 0;
+    }
+    .info-box {
+        background: #dbeafe;
+        border-left: 4px solid #3b82f6;
+        padding: 1rem;
+        border-radius: 0.25rem;
+        margin: 1rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Initialize session state
+if "stage" not in st.session_state:
+    st.session_state.stage = 1
+if "entity_id" not in st.session_state:
+    st.session_state.entity_id = None
+if "uploaded_docs" not in st.session_state:
+    st.session_state.uploaded_docs = {}
+if "classifications" not in st.session_state:
+    st.session_state.classifications = {}
+if "extracted_data" not in st.session_state:
+    st.session_state.extracted_data = {}
+if "research_data" not in st.session_state:
+    st.session_state.research_data = {}
+if "final_report" not in st.session_state:
+    st.session_state.final_report = None
+
+# Sidebar
+with st.sidebar:
+    st.markdown("### 🏦 Intelli-Credit")
+    st.markdown("**Enterprise Credit Underwriting Platform**")
+    
+    st.divider()
+    
+    # Stage indicator
+    st.markdown("#### 📍 Current Stage")
+    stages = [
+        "1️⃣ Entity Onboarding",
+        "2️⃣ Data Ingestion",
+        "3️⃣ Extraction & Mapping",
+        "4️⃣ Analysis & Reporting"
+    ]
+    for i, stage_name in enumerate(stages, 1):
+        if i == st.session_state.stage:
+            st.markdown(f"**→ {stage_name}**")
+        elif i < st.session_state.stage:
+            st.markdown(f"✅ {stage_name}")
+        else:
+            st.markdown(f"⏳ {stage_name}")
+    
+    st.divider()
+    
+    # API Status
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if api_key:
+        st.success("✅ API Connected")
+    else:
+        st.error("❌ API Key Missing")
+    
+    st.divider()
+    
+    # Reset button
+    if st.button("🔄 Start New Assessment", use_container_width=True):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
+# Main content
+st.markdown('<h1 class="main-header">🏦 Intelli-Credit Enterprise Platform</h1>', unsafe_allow_html=True)
+st.markdown("**End-to-end automation of enterprise credit underwriting**")
+
+st.divider()
+
+# ============================================================================
+# STAGE 1: ENTITY ONBOARDING
+# ============================================================================
+if st.session_state.stage == 1:
+    st.markdown('<div class="stage-header"><h2>Stage 1: Entity Onboarding</h2></div>', unsafe_allow_html=True)
+    
+    st.markdown("### Basic Entity Details")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        company_name = st.text_input("Company Name *", placeholder="e.g., ABC Industries Ltd")
+        cin = st.text_input("CIN (Corporate Identification Number) *", placeholder="e.g., U12345MH2010PLC123456")
+        pan = st.text_input("PAN *", placeholder="e.g., AAAAA1234A")
+        sector = st.selectbox("Sector *", [
+            "Select Sector",
+            "Manufacturing",
+            "Services",
+            "Financial Services",
+            "Infrastructure",
+            "Technology",
+            "Healthcare",
+            "Real Estate",
+            "Retail",
+            "Agriculture",
+            "Other"
+        ])
+    
+    with col2:
+        turnover = st.number_input("Annual Turnover (₹ Crores) *", min_value=0.0, step=0.1)
+        employees = st.number_input("Number of Employees", min_value=0, step=1)
+        year_established = st.number_input("Year Established", min_value=1900, max_value=2024, step=1)
+        location = st.text_input("Headquarters Location", placeholder="e.g., Mumbai, Maharashtra")
+    
+    st.markdown("### Loan Details")
+    
+    col3, col4 = st.columns(2)
+    
+    with col3:
+        loan_type = st.selectbox("Loan Type *", [
+            "Select Loan Type",
+            "Term Loan",
+            "Working Capital",
+            "Project Finance",
+            "Trade Finance",
+            "Equipment Finance",
+            "Other"
+        ])
+        loan_amount = st.number_input("Loan Amount (₹ Crores) *", min_value=0.0, step=0.1)
+    
+    with col4:
+        tenure = st.number_input("Tenure (Months) *", min_value=1, max_value=360, step=1)
+        interest_rate = st.number_input("Proposed Interest Rate (%) *", min_value=0.0, max_value=30.0, step=0.1)
+    
+    st.divider()
+    
+    if st.button("✅ Submit & Proceed to Document Upload", type="primary", use_container_width=True):
+        # Validation
+        if not all([company_name, cin, pan, sector != "Select Sector", turnover > 0, 
+                   loan_type != "Select Loan Type", loan_amount > 0, tenure > 0, interest_rate > 0]):
+            st.error("⚠️ Please fill all required fields marked with *")
+        else:
+            # Create entity
+            entity_data = {
+                "basic_info": {
+                    "company_name": company_name,
+                    "cin": cin,
+                    "pan": pan,
+                    "sector": sector,
+                    "turnover": turnover,
+                    "employees": employees,
+                    "year_established": year_established,
+                    "location": location
+                },
+                "loan_details": {
+                    "loan_type": loan_type,
+                    "loan_amount": loan_amount,
+                    "tenure": tenure,
+                    "interest_rate": interest_rate
+                }
+            }
+            
+            entity_id = entity_manager.create_entity(entity_data)
+            st.session_state.entity_id = entity_id
+            st.session_state.stage = 2
+            st.success(f"✅ Entity created successfully! Entity ID: {entity_id}")
+            st.rerun()
+
+# ============================================================================
+# STAGE 2: INTELLIGENT DATA INGESTION
+# ============================================================================
+elif st.session_state.stage == 2:
+    st.markdown('<div class="stage-header"><h2>Stage 2: Intelligent Data Ingestion</h2></div>', unsafe_allow_html=True)
+
+    entity = None
+    if st.session_state.entity_id:
+        entity = entity_manager.get_entity(st.session_state.entity_id)
+
+    if entity:
+        st.markdown(f"**Entity:** {entity['basic_info']['company_name']} | **ID:** {st.session_state.entity_id}")
+
+        st.markdown("### Upload Documents")
+        st.markdown("**Supported formats:** PDF, DOCX, XLSX, XLS, TXT, PNG, JPG, JPEG")
+        st.markdown("**Tip:** You can upload multiple files at once or one by one!")
+
+        # Multi-file uploader
+        uploaded_files = st.file_uploader(
+            "Upload one or more documents (select multiple files)",
+            type=["pdf", "docx", "xlsx", "xls", "txt", "png", "jpg", "jpeg"],
+            accept_multiple_files=True,
+            key="multi_file_uploader"
+        )
+
+        # Document type mapping
+        doc_types = {
+            "alm": "📊 ALM (Asset-Liability Management)",
+            "shareholding": "👥 Shareholding Pattern",
+            "borrowing": "💰 Borrowing Profile",
+            "annual_report": "📈 Annual Reports (P&L, Balance Sheet, Cash Flow)",
+            "portfolio": "📁 Portfolio Cuts/Performance Data"
+        }
+
+        # Process uploaded files
+        if uploaded_files:
+            st.markdown("### Uploaded Files")
+            st.markdown(f"**Total files uploaded:** {len(uploaded_files)}")
+
+            for idx, uploaded_file in enumerate(uploaded_files):
+                file_name = uploaded_file.name
+                file_size = uploaded_file.size
+                file_type = uploaded_file.type
+
+                # Determine document type from filename or let user select
+                col1, col2, col3 = st.columns([3, 2, 1])
+
+                with col1:
+                    st.markdown(f"**📄 {file_name}**")
+                    st.caption(f"Size: {file_size / 1024:.1f} KB | Type: {file_type}")
+
+                with col2:
+                    # Auto-detect doc type from filename
+                    detected_type = None
+                    file_lower = file_name.lower()
+                    if "alm" in file_lower:
+                        detected_type = "alm"
+                    elif "share" in file_lower or "holding" in file_lower:
+                        detected_type = "shareholding"
+                    elif "borrow" in file_lower or "debt" in file_lower:
+                        detected_type = "borrowing"
+                    elif "annual" in file_lower or "financial" in file_lower or "report" in file_lower:
+                        detected_type = "annual_report"
+                    elif "portfolio" in file_lower or "performance" in file_lower:
+                        detected_type = "portfolio"
+
+                    default_index = list(doc_types.keys()).index(detected_type) if detected_type else 0
+
+                    selected_type = st.selectbox(
+                        "Document Type",
+                        list(doc_types.keys()),
+                        format_func=lambda x: doc_types[x],
+                        index=default_index,
+                        key=f"doc_type_{idx}"
+                    )
+
+                with col3:
+                    if st.button("🗑️", key=f"remove_{idx}", help="Remove file"):
+                        pass  # File will be removed on next rerun
+
+                st.divider()
+
+                # Store in session state
+                if selected_type not in st.session_state.uploaded_docs:
+                    st.session_state.uploaded_docs[selected_type] = {
+                        "file_name": file_name,
+                        "file_size": file_size,
+                        "file_type": file_type,
+                        "uploaded_at": datetime.now().isoformat(),
+                        "file_data": uploaded_file.getvalue()
+                    }
+
+        # Show upload progress
+        st.markdown("### Upload Progress")
+        uploaded_types = list(st.session_state.uploaded_docs.keys())
+        missing_types = [k for k in doc_types.keys() if k not in uploaded_types]
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("**Uploaded:**")
+            for doc_type in uploaded_types:
+                st.markdown(f"✅ {doc_types[doc_type]}")
+
+        with col2:
+            st.markdown("**Missing:**")
+            for doc_type in missing_types:
+                st.markdown(f"⬜ {doc_types[doc_type]}")
+
+        st.progress(len(st.session_state.uploaded_docs) / 5)
+
+        st.markdown(f"**Progress:** {len(st.session_state.uploaded_docs)}/5 documents uploaded")
+
+        # Proceed button
+        if len(st.session_state.uploaded_docs) >= 5:
+            if st.button("✅ Proceed to Extraction & Classification", type="primary", use_container_width=True):
+                st.session_state.stage = 3
+                st.rerun()
+        else:
+            st.warning(f"⚠️ Please upload all 5 document types to proceed ({5 - len(st.session_state.uploaded_docs)} remaining)")
+
+            # Option to proceed with fewer documents
+            if len(st.session_state.uploaded_docs) >= 1:
+                if st.button("⏭️ Proceed with uploaded documents only", use_container_width=True):
+                    st.session_state.stage = 3
+                    st.rerun()
+
+# ============================================================================
+# STAGE 3: AUTOMATED EXTRACTION & SCHEMA MAPPING
+# ============================================================================
+elif st.session_state.stage == 3:
+    st.markdown('<div class="stage-header"><h2>Stage 3: Automated Extraction & Schema Mapping</h2></div>', unsafe_allow_html=True)
+    
+    st.markdown("### Document Classification & Human-in-the-Loop")
+    
+    # Auto-classify documents (simulated)
+    if not st.session_state.classifications:
+        for doc_key in st.session_state.uploaded_docs.keys():
+            st.session_state.classifications[doc_key] = {
+                "auto_classification": doc_key,
+                "confidence": 0.95,
+                "user_approved": False,
+                "user_classification": doc_key
+            }
+    
+    # Display classifications for approval
+    for doc_key, doc_info in st.session_state.uploaded_docs.items():
+        st.markdown(f"#### {doc_info['file_name']}")
+        
+        col1, col2, col3 = st.columns([2, 2, 1])
+        
+        with col1:
+            st.write(f"**Auto-Classification:** {st.session_state.classifications[doc_key]['auto_classification']}")
+            st.write(f"**Confidence:** {st.session_state.classifications[doc_key]['confidence']:.0%}")
+        
+        with col2:
+            user_class = st.selectbox(
+                "Confirm or Edit Classification",
+                ["alm", "shareholding", "borrowing", "annual_report", "portfolio"],
+                index=["alm", "shareholding", "borrowing", "annual_report", "portfolio"].index(
+                    st.session_state.classifications[doc_key]['user_classification']
+                ),
+                key=f"class_{doc_key}"
+            )
+            st.session_state.classifications[doc_key]['user_classification'] = user_class
+        
+        with col3:
+            if st.button("✅ Approve", key=f"approve_{doc_key}"):
+                st.session_state.classifications[doc_key]['user_approved'] = True
+                st.success("Approved!")
+    
+    st.divider()
+    
+    # Schema configuration
+    st.markdown("### Dynamic Schema Configuration")
+    
+    selected_doc = st.selectbox("Select Document Type to Configure Schema", 
+                               list(st.session_state.uploaded_docs.keys()))
+    
+    if selected_doc:
+        schema = schema_manager.get_schema(st.session_state.classifications[selected_doc]['user_classification'])
+        
+        if schema:
+            st.markdown(f"**Schema for:** {schema['name']}")
+            
+            with st.expander("📋 View/Edit Schema Fields"):
+                st.json(schema['fields'])
+                
+                st.markdown("**Add Custom Field:**")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    new_field_name = st.text_input("Field Name", key="new_field")
+                with col2:
+                    new_field_type = st.selectbox("Type", ["string", "number", "boolean", "object", "array"])
+                with col3:
+                    new_field_desc = st.text_input("Description", key="new_desc")
+                
+                if st.button("➕ Add Field"):
+                    if new_field_name:
+                        schema_manager.add_field(
+                            st.session_state.classifications[selected_doc]['user_classification'],
+                            {
+                                "name": new_field_name,
+                                "type": new_field_type,
+                                "description": new_field_desc
+                            }
+                        )
+                        st.success(f"Field '{new_field_name}' added!")
+                        st.rerun()
+    
+    st.divider()
+    
+    # Extract data
+    all_approved = all(c['user_approved'] for c in st.session_state.classifications.values())
+    
+    if all_approved:
+        if st.button("🚀 Extract Data & Proceed to Analysis", type="primary", use_container_width=True):
+            with st.spinner("Extracting data from documents..."):
+                # Simulate extraction (in production, call LLM with schema)
+                for doc_key in st.session_state.uploaded_docs.keys():
+                    doc_type = st.session_state.classifications[doc_key]['user_classification']
+                    
+                    # Simulated extracted data
+                    if doc_type == "annual_report":
+                        st.session_state.extracted_data[doc_type] = {
+                            "revenue": 1500,
+                            "expenses": 1200,
+                            "ebitda": 350,
+                            "net_profit": 250,
+                            "total_assets": 5000,
+                            "total_liabilities": 3000,
+                            "equity": 2000,
+                            "operating_cash_flow": 400,
+                            "investing_cash_flow": -200,
+                            "financing_cash_flow": -100,
+                            "financial_year": "FY 2023-24"
+                        }
+                    elif doc_type == "borrowing":
+                        st.session_state.extracted_data[doc_type] = {
+                            "total_borrowings": 2500,
+                            "secured_loans": 2000,
+                            "unsecured_loans": 500,
+                            "short_term_debt": 800,
+                            "long_term_debt": 1700,
+                            "debt_equity_ratio": 1.25,
+                            "interest_coverage": 3.5,
+                            "lenders": ["Bank A", "Bank B", "NBFC C"]
+                        }
+                    elif doc_type == "alm":
+                        st.session_state.extracted_data[doc_type] = {
+                            "total_assets": 5000,
+                            "total_liabilities": 3000,
+                            "current_assets": 2000,
+                            "current_liabilities": 1200,
+                            "alm_ratio": 1.67,
+                            "liquidity_gap": 800
+                        }
+                    elif doc_type == "portfolio":
+                        st.session_state.extracted_data[doc_type] = {
+                            "portfolio_size": 10000,
+                            "npa_percentage": 2.5,
+                            "gross_npa": 250,
+                            "net_npa": 150,
+                            "provision_coverage": 60
+                        }
+                    elif doc_type == "shareholding":
+                        st.session_state.extracted_data[doc_type] = {
+                            "promoter_holding": 55,
+                            "public_holding": 45,
+                            "institutional_holding": 25,
+                            "pledged_shares": 15
+                        }
+                
+                st.session_state.stage = 4
+                st.success("✅ Data extracted successfully!")
+                st.rerun()
+    else:
+        st.warning("⚠️ Please approve all document classifications to proceed")
+
+# ============================================================================
+# STAGE 4: PRE-COGNITIVE SECONDARY ANALYSIS & REPORTING
+# ============================================================================
+elif st.session_state.stage == 4:
+    st.markdown('<div class="stage-header"><h2>Stage 4: Pre-Cognitive Secondary Analysis & Reporting</h2></div>', unsafe_allow_html=True)
+
+    entity = None
+    if st.session_state.entity_id:
+        entity = entity_manager.get_entity(st.session_state.entity_id)
+    
+    if not entity:
+        st.error("Entity not found. Please restart the assessment.")
+        st.stop()
+
+    # Secondary Research
+    if not st.session_state.research_data:
+        with st.spinner("🔍 Conducting secondary research..."):
+            st.session_state.research_data = conduct_secondary_research(entity)
+
+    # Generate recommendation
+    if not st.session_state.final_report:
+        with st.spinner("🤖 Generating AI-powered recommendation..."):
+            recommendation = generate_recommendation(
+                entity,
+                st.session_state.extracted_data,
+                st.session_state.research_data
+            )
+
+            swot = generate_swot_analysis(
+                entity,
+                st.session_state.extracted_data,
+                st.session_state.research_data
+            )
+
+            final_report = generate_investment_report(
+                entity,
+                st.session_state.extracted_data,
+                st.session_state.research_data,
+                recommendation,
+                swot
+            )
+            
+            st.session_state.final_report = {
+                "recommendation": recommendation,
+                "swot": swot,
+                "report_text": final_report
+            }
+    
+    # Display results
+    rec = st.session_state.final_report['recommendation']
+    
+    # Recommendation Card
+    st.markdown("### 🎯 Credit Recommendation")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Recommendation", rec['recommendation'])
+    with col2:
+        st.metric("Final Score", f"{rec['final_score']}/100")
+    with col3:
+        st.metric("Confidence", rec['confidence'])
+    
+    st.markdown(f"**Rationale:** {rec['rationale']}")
+    
+    st.divider()
+    
+    # Scores Breakdown
+    st.markdown("### 📊 Score Breakdown")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.metric("Financial Score", f"{rec['financial_score']}/100")
+        with st.expander("View Factors"):
+            for factor in rec['positive_factors']:
+                st.success(factor)
+            for factor in rec['risk_factors']:
+                st.error(factor)
+    
+    with col2:
+        st.metric("Market Score", f"{rec['market_score']}/100")
+    
+    st.divider()
+    
+    # SWOT Analysis
+    st.markdown("### 🎯 SWOT Analysis")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Strengths:**")
+        for s in st.session_state.final_report['swot']['strengths']:
+            st.success(f"✓ {s}")
+        
+        st.markdown("**Opportunities:**")
+        for o in st.session_state.final_report['swot']['opportunities']:
+            st.info(f"→ {o}")
+    
+    with col2:
+        st.markdown("**Weaknesses:**")
+        for w in st.session_state.final_report['swot']['weaknesses']:
+            st.warning(f"⚠ {w}")
+        
+        st.markdown("**Threats:**")
+        for t in st.session_state.final_report['swot']['threats']:
+            st.error(f"✗ {t}")
+    
+    st.divider()
+    
+    # Secondary Research Summary
+    st.markdown("### 🔍 Secondary Research Summary")
+    
+    with st.expander("📰 News & Media Coverage"):
+        for news in st.session_state.research_data.get('news', [])[:5]:
+            if 'error' not in news:
+                st.markdown(f"**{news['title']}**")
+                st.caption(f"{news['source']} | {news['date']} | Sentiment: {news['sentiment']}")
+    
+    with st.expander("⚖️ Legal & Regulatory"):
+        for legal in st.session_state.research_data.get('legal', [])[:5]:
+            if 'error' not in legal:
+                st.markdown(f"**{legal['case_type']}** - {legal['status']}")
+                st.caption(f"Severity: {legal['severity']} | {legal['date']}")
+    
+    with st.expander("📈 Market Sentiment"):
+        sentiment = st.session_state.research_data.get('market_sentiment', {})
+        if 'error' not in sentiment:
+            st.json(sentiment)
+    
+    st.divider()
+    
+    # Final Report
+    st.markdown("### 📄 Comprehensive Investment Report")
+    
+    with st.expander("📖 View Full Report", expanded=False):
+        st.text(st.session_state.final_report['report_text'])
+    
+    # Download buttons
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.download_button(
+            label="⬇️ Download Investment Report (.txt)",
+            data=st.session_state.final_report['report_text'],
+            file_name=f"investment_report_{st.session_state.entity_id}.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
+    
+    with col2:
+        # Export full data as JSON
+        full_data = {
+            "entity": entity,
+            "extracted_data": st.session_state.extracted_data,
+            "research": st.session_state.research_data,
+            "recommendation": rec,
+            "swot": st.session_state.final_report['swot']
+        }
+        
+        st.download_button(
+            label="⬇️ Download Full Analysis (JSON)",
+            data=json.dumps(full_data, indent=2),
+            file_name=f"full_analysis_{st.session_state.entity_id}.json",
+            mime="application/json",
+            use_container_width=True
+        )
+
+# Footer
+st.divider()
+st.markdown("""
+<div style='text-align: center; color: gray; font-size: 0.9em;'>
+    Intelli-Credit Enterprise Platform | Built with Streamlit + OpenRouter MiniMax M2.5 | Hackathon 2026
+</div>
+""", unsafe_allow_html=True)

@@ -1,0 +1,145 @@
+"""
+Dynamic schema management for document extraction.
+"""
+from typing import Dict, List
+
+
+# Default schemas for each document type
+DEFAULT_SCHEMAS = {
+    "alm": {
+        "name": "Asset-Liability Management",
+        "fields": [
+            {"name": "total_assets", "type": "number", "description": "Total assets value"},
+            {"name": "total_liabilities", "type": "number", "description": "Total liabilities value"},
+            {"name": "current_assets", "type": "number", "description": "Current assets"},
+            {"name": "current_liabilities", "type": "number", "description": "Current liabilities"},
+            {"name": "alm_ratio", "type": "number", "description": "Asset-Liability ratio"},
+            {"name": "maturity_profile", "type": "object", "description": "Maturity profile breakdown"},
+            {"name": "liquidity_gap", "type": "number", "description": "Liquidity gap"},
+            {"name": "reporting_date", "type": "string", "description": "Report date"}
+        ]
+    },
+    "shareholding": {
+        "name": "Shareholding Pattern",
+        "fields": [
+            {"name": "promoter_holding", "type": "number", "description": "Promoter holding percentage"},
+            {"name": "public_holding", "type": "number", "description": "Public holding percentage"},
+            {"name": "institutional_holding", "type": "number", "description": "Institutional holding percentage"},
+            {"name": "fii_holding", "type": "number", "description": "FII holding percentage"},
+            {"name": "dii_holding", "type": "number", "description": "DII holding percentage"},
+            {"name": "pledged_shares", "type": "number", "description": "Pledged shares percentage"},
+            {"name": "top_shareholders", "type": "array", "description": "List of top shareholders"},
+            {"name": "reporting_date", "type": "string", "description": "Report date"}
+        ]
+    },
+    "borrowing": {
+        "name": "Borrowing Profile",
+        "fields": [
+            {"name": "total_borrowings", "type": "number", "description": "Total borrowings"},
+            {"name": "secured_loans", "type": "number", "description": "Secured loans"},
+            {"name": "unsecured_loans", "type": "number", "description": "Unsecured loans"},
+            {"name": "short_term_debt", "type": "number", "description": "Short-term debt"},
+            {"name": "long_term_debt", "type": "number", "description": "Long-term debt"},
+            {"name": "debt_equity_ratio", "type": "number", "description": "Debt-to-equity ratio"},
+            {"name": "interest_coverage", "type": "number", "description": "Interest coverage ratio"},
+            {"name": "lenders", "type": "array", "description": "List of lenders"},
+            {"name": "reporting_date", "type": "string", "description": "Report date"}
+        ]
+    },
+    "annual_report": {
+        "name": "Annual Report (P&L, Balance Sheet, Cash Flow)",
+        "fields": [
+            {"name": "revenue", "type": "number", "description": "Total revenue"},
+            {"name": "expenses", "type": "number", "description": "Total expenses"},
+            {"name": "ebitda", "type": "number", "description": "EBITDA"},
+            {"name": "net_profit", "type": "number", "description": "Net profit"},
+            {"name": "total_assets", "type": "number", "description": "Total assets"},
+            {"name": "total_liabilities", "type": "number", "description": "Total liabilities"},
+            {"name": "equity", "type": "number", "description": "Shareholders equity"},
+            {"name": "operating_cash_flow", "type": "number", "description": "Operating cash flow"},
+            {"name": "investing_cash_flow", "type": "number", "description": "Investing cash flow"},
+            {"name": "financing_cash_flow", "type": "number", "description": "Financing cash flow"},
+            {"name": "financial_year", "type": "string", "description": "Financial year"}
+        ]
+    },
+    "portfolio": {
+        "name": "Portfolio Cuts/Performance Data",
+        "fields": [
+            {"name": "portfolio_size", "type": "number", "description": "Total portfolio size"},
+            {"name": "npa_percentage", "type": "number", "description": "NPA percentage"},
+            {"name": "gross_npa", "type": "number", "description": "Gross NPA"},
+            {"name": "net_npa", "type": "number", "description": "Net NPA"},
+            {"name": "provision_coverage", "type": "number", "description": "Provision coverage ratio"},
+            {"name": "portfolio_yield", "type": "number", "description": "Portfolio yield"},
+            {"name": "sector_wise_exposure", "type": "object", "description": "Sector-wise exposure"},
+            {"name": "vintage_analysis", "type": "object", "description": "Vintage analysis"},
+            {"name": "reporting_date", "type": "string", "description": "Report date"}
+        ]
+    }
+}
+
+
+class SchemaManager:
+    """Manages extraction schemas for different document types."""
+    
+    def __init__(self):
+        self.schemas = DEFAULT_SCHEMAS.copy()
+    
+    def get_schema(self, doc_type: str) -> Dict:
+        """Get schema for a document type."""
+        return self.schemas.get(doc_type, {})
+    
+    def get_all_schemas(self) -> Dict:
+        """Get all schemas."""
+        return self.schemas
+    
+    def update_schema(self, doc_type: str, schema: Dict):
+        """Update schema for a document type."""
+        self.schemas[doc_type] = schema
+    
+    def add_field(self, doc_type: str, field: Dict):
+        """Add a field to a schema."""
+        if doc_type in self.schemas:
+            self.schemas[doc_type]["fields"].append(field)
+    
+    def remove_field(self, doc_type: str, field_name: str):
+        """Remove a field from a schema."""
+        if doc_type in self.schemas:
+            self.schemas[doc_type]["fields"] = [
+                f for f in self.schemas[doc_type]["fields"]
+                if f["name"] != field_name
+            ]
+    
+    def get_field_names(self, doc_type: str) -> List[str]:
+        """Get list of field names for a document type."""
+        schema = self.get_schema(doc_type)
+        if schema and "fields" in schema:
+            return [f["name"] for f in schema["fields"]]
+        return []
+    
+    def generate_extraction_prompt(self, doc_type: str, text: str) -> str:
+        """Generate LLM prompt for extraction based on schema."""
+        schema = self.get_schema(doc_type)
+        if not schema:
+            return ""
+        
+        field_descriptions = "\n".join([
+            f"- {f['name']} ({f['type']}): {f['description']}"
+            for f in schema["fields"]
+        ])
+        
+        prompt = f"""Extract the following information from the {schema['name']} document:
+
+Required Fields:
+{field_descriptions}
+
+Document Text:
+{text[:10000]}
+
+Return ONLY valid JSON with the exact field names specified above. If a field is not found, use null.
+"""
+        return prompt
+
+
+# Global schema manager instance
+schema_manager = SchemaManager()

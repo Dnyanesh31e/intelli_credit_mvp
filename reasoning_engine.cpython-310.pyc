@@ -1,0 +1,255 @@
+import fitz # PyMuPDF
+from docx import Document
+from PIL import Image
+import io
+import numpy as np
+
+try:
+    from paddleocr import PaddleOCR
+    PADDLEOCR_AVAILABLE = True
+except ImportError:
+    PADDLEOCR_AVAILABLE = False
+    PaddleOCR = None
+
+
+# Initialize PaddleOCR (lazy loading)
+_ocr_instance = None
+
+
+def get_ocr_instance():
+    """Get or create PaddleOCR instance (singleton pattern)."""
+    global _ocr_instance
+    if not PADDLEOCR_AVAILABLE:
+        raise Exception("PaddleOCR is not installed. Install with: pip install paddleocr paddlepaddle")
+    if _ocr_instance is None:
+        _ocr_instance = PaddleOCR(
+            use_angle_cls=True,
+            lang='en',
+            show_log=False,
+            use_gpu=False
+        )
+    return _ocr_instance
+
+
+def extract_text_from_file(file_bytes: bytes, file_type: str) -> str:
+    """
+    Extract text from various file types.
+
+    Args:
+        file_bytes: File content as bytes
+        file_type: File extension (pdf, docx, txt, png, jpg, jpeg, xlsx, xls)
+
+    Returns:
+        Extracted text as string
+
+    Raises:
+        Exception: If extraction fails
+    """
+    file_type = file_type.lower().strip('.')
+
+    try:
+        if file_type == 'pdf':
+            return extract_from_pdf(file_bytes)
+        elif file_type == 'docx':
+            return extract_from_docx(file_bytes)
+        elif file_type == 'txt':
+            return extract_from_txt(file_bytes)
+        elif file_type in ['png', 'jpg', 'jpeg', 'tiff', 'bmp']:
+            return extract_from_image(file_bytes)
+        elif file_type in ['xlsx', 'xls']:
+            return extract_from_excel(file_bytes)
+        else:
+            raise Exception(f"Unsupported file type: {file_type}")
+
+    except Exception as e:
+        raise Exception(f"Failed to extract text from {file_type.upper()}: {str(e)}")
+
+
+def extract_from_pdf(file_bytes: bytes, use_ocr: bool = True) -> str:
+    """
+    Extract text from PDF using PyMuPDF with PaddleOCR fallback.
+    
+    Args:
+        file_bytes: PDF file content as bytes
+        use_ocr: Whether to use OCR for scanned PDFs (default: True)
+        
+    Returns:
+        Extracted text as string
+    """
+    pdf_document = fitz.open(stream=file_bytes, filetype="pdf")
+    
+    # Try direct text extraction first
+    text_content = []
+    pages_with_text = 0
+    
+    for page_num in range(pdf_document.page_count):
+        page = pdf_document[page_num]
+        page_text = page.get_text().strip()
+        
+        if page_text:
+            text_content.append(page_text)
+            pages_with_text += 1
+        else:
+            text_content.append("")  # Placeholder for OCR
+    
+    # Check if we got meaningful text
+    total_text = "\n".join(text_content).strip()
+    text_ratio = pages_with_text / pdf_document.page_count if pdf_document.page_count > 0 else 0
+    
+    # If less than 30% of pages have text, use OCR
+    if use_ocr and text_ratio < 0.3:
+        print(f"Low text extraction ({text_ratio:.0%}). Using PaddleOCR...")
+        text_content = extract_pdf_with_ocr(pdf_document)
+        total_text = "\n".join(text_content)
+    
+    pdf_document.close()
+    
+    if not total_text.strip():
+        raise Exception("No text could be extracted from the PDF")
+    
+    return total_text
+
+
+def extract_pdf_with_ocr(pdf_document) -> list:
+    """
+    Extract text from PDF using PaddleOCR.
+    
+    Args:
+        pdf_document: PyMuPDF document object
+        
+    Returns:
+        List of text strings (one per page)
+    """
+    ocr = get_ocr_instance()
+    text_content = []
+    
+    for page_num in range(pdf_document.page_count):
+        page = pdf_document[page_num]
+        
+        # Render page to image
+        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom for better OCR
+        img_data = pix.tobytes("png")
+        
+        # Convert to PIL Image then numpy array
+        image = Image.open(io.BytesIO(img_data))
+        img_array = np.array(image)
+        
+        # Run OCR
+        result = ocr.ocr(img_array, cls=True)
+        
+        # Extract text from OCR result
+        page_text = []
+        if result and result[0]:
+            for line in result[0]:
+                if line and len(line) >= 2:
+                    text = line[1][0]  # Extract text from tuple
+                    page_text.append(text)
+        
+        text_content.append("\n".join(page_text))
+    
+    return text_content
+
+
+def extract_from_docx(file_bytes: bytes) -> str:
+    """Extract text from DOCX using python-docx."""
+    doc = Document(io.BytesIO(file_bytes))
+    
+    text_content = []
+    for paragraph in doc.paragraphs:
+        if paragraph.text.strip():
+            text_content.append(paragraph.text)
+    
+    # Also extract text from tables
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                if cell.text.strip():
+                    text_content.append(cell.text)
+    
+    full_text = "\n".join(text_content)
+    
+    if not full_text.strip():
+        raise Exception("No text could be extracted from the DOCX")
+    
+    return full_text
+
+
+def extract_from_txt(file_bytes: bytes) -> str:
+    """Extract text from TXT file."""
+    try:
+        # Try UTF-8 first
+        text = file_bytes.decode('utf-8')
+    except UnicodeDecodeError:
+        # Fallback to latin-1
+        text = file_bytes.decode('latin-1', errors='ignore')
+    
+    if not text.strip():
+        raise Exception("No text could be extracted from the TXT file")
+    
+    return text
+
+
+def extract_from_image(file_bytes: bytes) -> str:
+    """Extract text from image using PaddleOCR (if available) or return placeholder."""
+    if not PADDLEOCR_AVAILABLE:
+        raise Exception("Image OCR requires PaddleOCR. Please upload PDF, DOCX, TXT, or Excel files instead.")
+    
+    try:
+        image = Image.open(io.BytesIO(file_bytes))
+
+        # Convert to RGB if necessary
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+
+        # Convert to numpy array for PaddleOCR
+        img_array = np.array(image)
+
+        # Get OCR instance and perform OCR
+        ocr = get_ocr_instance()
+        result = ocr.ocr(img_array, cls=True)
+
+        # Extract text from OCR result
+        text_lines = []
+        if result and result[0]:
+            for line in result[0]:
+                if line and len(line) >= 2:
+                    text = line[1][0] # Extract text from tuple
+                    text_lines.append(text)
+
+        text = "\n".join(text_lines)
+
+        if not text.strip():
+            raise Exception("No text could be extracted from the image. The image may not contain readable text.")
+
+        return text
+
+    except Exception as e:
+        raise Exception(f"OCR extraction failed: {str(e)}")
+
+
+def extract_from_excel(file_bytes: bytes) -> str:
+    """Extract text from Excel file (xlsx, xls)."""
+    try:
+        import pandas as pd
+        
+        # Read all sheets
+        excel_file = pd.ExcelFile(io.BytesIO(file_bytes))
+        text_content = []
+        
+        for sheet_name in excel_file.sheet_names:
+            df = pd.read_excel(excel_file, sheet_name=sheet_name)
+            text_content.append(f"=== Sheet: {sheet_name} ===")
+            text_content.append(df.to_string())
+            text_content.append("")
+        
+        full_text = "\n".join(text_content)
+        
+        if not full_text.strip():
+            raise Exception("No text could be extracted from the Excel file")
+        
+        return full_text
+        
+    except ImportError:
+        raise Exception("pandas and openpyxl are required for Excel support. Install with: pip install pandas openpyxl")
+    except Exception as e:
+        raise Exception(f"Excel extraction failed: {str(e)}")

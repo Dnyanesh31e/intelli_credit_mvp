@@ -1,0 +1,111 @@
+def calculate_risk_score(analysis: dict) -> dict:
+    """
+    Apply deterministic rule-based risk scoring on LLM analysis output.
+    
+    Args:
+        analysis: Dictionary from LLM analyzer
+        
+    Returns:
+        Dictionary with final_score, risk_level, score_breakdown, recommendation
+    """
+    # Start at base score
+    score = 50
+    breakdown = []
+    
+    # Extract relevant fields safely
+    risk_flags = analysis.get("risk_flags", [])
+    positive_signals = analysis.get("positive_signals", [])
+    compliance_flags = analysis.get("compliance_flags", [])
+    financial_metrics = analysis.get("financial_metrics", {})
+    governance_metrics = analysis.get("governance_metrics", {})
+    
+    # Rule 1: Asset cover ratio
+    asset_cover = financial_metrics.get("asset_cover", None)
+    if asset_cover:
+        try:
+            asset_cover_val = float(asset_cover)
+            if asset_cover_val < 1.2:
+                score += 10
+                breakdown.append("+10: Asset cover < 1.2")
+        except (ValueError, TypeError):
+            pass
+    
+    # Rule 2: Covenant non-compliance
+    covenant_breach = any(
+        keyword in str(risk_flags).lower() + str(compliance_flags).lower()
+        for keyword in ["breach", "non-compliance", "violation", "covenant breach"]
+    )
+    if covenant_breach:
+        score += 15
+        breakdown.append("+15: Covenant breach or non-compliance detected")
+    
+    # Rule 3: Auditor qualifications
+    auditor_issue = any(
+        keyword in str(risk_flags).lower() + str(compliance_flags).lower()
+        for keyword in ["auditor", "qualification", "emphasis", "modified opinion"]
+    )
+    if auditor_issue:
+        score += 10
+        breakdown.append("+10: Auditor qualification or emphasis detected")
+    
+    # Rule 4: Multiple risk flags
+    if len(risk_flags) >= 3:
+        score += 8
+        breakdown.append(f"+8: Multiple risk flags present ({len(risk_flags)} flags)")
+    
+    # Rule 5: High leverage / unhealthy balance sheet
+    debt = financial_metrics.get("total_debt", 0)
+    equity = financial_metrics.get("total_equity", 0)
+    try:
+        if debt and equity:
+            debt_val = float(str(debt).replace(",", ""))
+            equity_val = float(str(equity).replace(",", ""))
+            if equity_val > 0 and (debt_val / equity_val) > 2.0:
+                score += 8
+                breakdown.append("+8: High debt-to-equity ratio")
+    except (ValueError, TypeError):
+        pass
+    
+    # Rule 6: Governance anomalies
+    governance_issue = any(
+        keyword in str(governance_metrics).lower() + str(risk_flags).lower()
+        for keyword in ["unusual", "anomaly", "red flag", "concern", "irregular"]
+    )
+    if governance_issue:
+        score += 6
+        breakdown.append("+6: Governance anomalies detected")
+    
+    # Rule 7: Strong positive signals
+    if len(positive_signals) >= 2:
+        score -= 5
+        breakdown.append(f"-5: Strong positive signals ({len(positive_signals)} signals)")
+    
+    # Rule 8: Clean compliance
+    clean_compliance = any(
+        keyword in str(compliance_flags).lower()
+        for keyword in ["compliant", "clean", "no breach", "satisfactory"]
+    )
+    if clean_compliance and len(risk_flags) == 0:
+        score -= 5
+        breakdown.append("-5: Clean compliance record")
+    
+    # Clamp score between 0 and 100
+    score = max(0, min(100, score))
+    
+    # Determine risk level
+    if score <= 34:
+        risk_level = "Low"
+        recommendation = "Approve"
+    elif score <= 64:
+        risk_level = "Moderate"
+        recommendation = "Review"
+    else:
+        risk_level = "High"
+        recommendation = "Reject"
+    
+    return {
+        "final_score": score,
+        "risk_level": risk_level,
+        "score_breakdown": breakdown,
+        "recommendation": recommendation
+    }

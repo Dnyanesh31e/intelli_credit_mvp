@@ -1,0 +1,381 @@
+"""
+Reasoning engine for explainable loan approval recommendations.
+"""
+import os
+import requests
+import json
+from typing import Dict, List
+
+
+def calculate_financial_score(extracted_data: Dict) -> Dict:
+    """Calculate financial health score from extracted data."""
+    score = 50  # Base score
+    factors = []
+    
+    # Check annual report data
+    annual = extracted_data.get("annual_report", {})
+    if annual:
+        # Profitability
+        net_profit = annual.get("net_profit", 0)
+        revenue = annual.get("revenue", 1)
+        if revenue > 0:
+            profit_margin = (net_profit / revenue) * 100
+            if profit_margin > 15:
+                score += 10
+                factors.append("+10: Strong profit margin (>15%)")
+            elif profit_margin < 5:
+                score -= 10
+                factors.append("-10: Weak profit margin (<5%)")
+        
+        # Asset quality
+        total_assets = annual.get("total_assets", 0)
+        total_liabilities = annual.get("total_liabilities", 0)
+        if total_assets > total_liabilities * 1.5:
+            score += 8
+            factors.append("+8: Strong asset base")
+    
+    # Check borrowing profile
+    borrowing = extracted_data.get("borrowing", {})
+    if borrowing:
+        debt_equity = borrowing.get("debt_equity_ratio", 0)
+        if debt_equity < 1.0:
+            score += 10
+            factors.append("+10: Healthy debt-equity ratio (<1.0)")
+        elif debt_equity > 2.0:
+            score -= 15
+            factors.append("-15: High debt-equity ratio (>2.0)")
+        
+        interest_coverage = borrowing.get("interest_coverage", 0)
+        if interest_coverage > 3.0:
+            score += 8
+            factors.append("+8: Strong interest coverage (>3.0)")
+        elif interest_coverage < 1.5:
+            score -= 10
+            factors.append("-10: Weak interest coverage (<1.5)")
+    
+    # Check ALM
+    alm = extracted_data.get("alm", {})
+    if alm:
+        alm_ratio = alm.get("alm_ratio", 0)
+        if alm_ratio > 1.2:
+            score += 5
+            factors.append("+5: Positive ALM ratio")
+        elif alm_ratio < 0.9:
+            score -= 8
+            factors.append("-8: Negative ALM ratio")
+    
+    # Check portfolio quality
+    portfolio = extracted_data.get("portfolio", {})
+    if portfolio:
+        npa = portfolio.get("npa_percentage", 0)
+        if npa < 2:
+            score += 10
+            factors.append("+10: Low NPA (<2%)")
+        elif npa > 5:
+            score -= 15
+            factors.append("-15: High NPA (>5%)")
+    
+    # Check shareholding
+    shareholding = extracted_data.get("shareholding", {})
+    if shareholding:
+        pledged = shareholding.get("pledged_shares", 0)
+        if pledged > 50:
+            score -= 10
+            factors.append("-10: High promoter pledge (>50%)")
+        elif pledged < 10:
+            score += 5
+            factors.append("+5: Low promoter pledge (<10%)")
+    
+    # Clamp score
+    score = max(0, min(100, score))
+    
+    return {
+        "financial_score": score,
+        "factors": factors,
+        "rating": "Strong" if score >= 70 else "Moderate" if score >= 40 else "Weak"
+    }
+
+
+def analyze_secondary_research(research: Dict) -> Dict:
+    """Analyze secondary research data."""
+    score = 50
+    factors = []
+    
+    # News sentiment
+    news = research.get("news", [])
+    positive_news = sum(1 for n in news if n.get("sentiment") == "positive")
+    negative_news = sum(1 for n in news if n.get("sentiment") == "negative")
+    
+    if positive_news > negative_news:
+        score += 5
+        factors.append("+5: Positive news sentiment")
+    elif negative_news > positive_news:
+        score -= 5
+        factors.append("-5: Negative news sentiment")
+    
+    # Legal issues
+    legal = research.get("legal", [])
+    high_severity = sum(1 for l in legal if l.get("severity") == "high")
+    if high_severity > 0:
+        score -= 15
+        factors.append(f"-15: {high_severity} high-severity legal case(s)")
+    elif len(legal) == 0:
+        score += 5
+        factors.append("+5: No legal issues found")
+    
+    # Market sentiment
+    sentiment = research.get("market_sentiment", {})
+    if sentiment.get("sentiment") == "positive":
+        score += 10
+        factors.append("+10: Positive market sentiment")
+    elif sentiment.get("sentiment") == "negative":
+        score -= 10
+        factors.append("-10: Negative market sentiment")
+    
+    score = max(0, min(100, score))
+    
+    return {
+        "market_score": score,
+        "factors": factors,
+        "rating": "Favorable" if score >= 60 else "Neutral" if score >= 40 else "Unfavorable"
+    }
+
+
+def generate_recommendation(entity_data: Dict, extracted_data: Dict, research: Dict) -> Dict:
+    """
+    Generate explainable loan approval recommendation.
+    """
+    # Calculate scores
+    financial_analysis = calculate_financial_score(extracted_data)
+    market_analysis = analyze_secondary_research(research)
+    
+    # Weighted final score
+    final_score = (financial_analysis["financial_score"] * 0.7 + 
+                   market_analysis["market_score"] * 0.3)
+    
+    # Determine recommendation
+    if final_score >= 70:
+        recommendation = "APPROVE"
+        confidence = "High"
+        rationale = "Strong financial metrics and favorable market conditions support loan approval."
+    elif final_score >= 50:
+        recommendation = "APPROVE WITH CONDITIONS"
+        confidence = "Medium"
+        rationale = "Moderate financial health. Recommend approval with enhanced monitoring and covenants."
+    elif final_score >= 35:
+        recommendation = "FURTHER REVIEW REQUIRED"
+        confidence = "Low"
+        rationale = "Mixed signals require additional due diligence before decision."
+    else:
+        recommendation = "REJECT"
+        confidence = "High"
+        rationale = "Significant financial or market concerns make this a high-risk proposition."
+    
+    # Loan details
+    loan_details = entity_data.get("loan_details", {})
+    loan_amount = loan_details.get("loan_amount", 0)
+    loan_type = loan_details.get("loan_type", "")
+    tenure = loan_details.get("tenure", 0)
+    
+    # Risk factors
+    all_factors = financial_analysis["factors"] + market_analysis["factors"]
+    risk_factors = [f for f in all_factors if f.startswith("-")]
+    positive_factors = [f for f in all_factors if f.startswith("+")]
+    
+    return {
+        "recommendation": recommendation,
+        "confidence": confidence,
+        "final_score": round(final_score, 2),
+        "financial_score": financial_analysis["financial_score"],
+        "market_score": market_analysis["market_score"],
+        "rationale": rationale,
+        "loan_details": {
+            "amount": loan_amount,
+            "type": loan_type,
+            "tenure": tenure
+        },
+        "risk_factors": risk_factors,
+        "positive_factors": positive_factors,
+        "conditions": generate_conditions(recommendation, risk_factors),
+        "monitoring_requirements": generate_monitoring(recommendation, extracted_data)
+    }
+
+
+def generate_conditions(recommendation: str, risk_factors: List[str]) -> List[str]:
+    """Generate loan conditions based on recommendation."""
+    if recommendation == "APPROVE":
+        return [
+            "Standard loan covenants apply",
+            "Quarterly financial reporting required",
+            "Maintain debt-equity ratio below 2.0"
+        ]
+    elif recommendation == "APPROVE WITH CONDITIONS":
+        conditions = [
+            "Enhanced quarterly monitoring required",
+            "Maintain minimum DSCR of 1.5x",
+            "Restrict additional borrowings without lender consent",
+            "Quarterly compliance certificates"
+        ]
+        if any("NPA" in f for f in risk_factors):
+            conditions.append("Monthly portfolio quality reporting")
+        if any("debt" in f.lower() for f in risk_factors):
+            conditions.append("Debt reduction plan required")
+        return conditions
+    else:
+        return []
+
+
+def generate_monitoring(recommendation: str, extracted_data: Dict) -> List[str]:
+    """Generate monitoring requirements."""
+    monitoring = [
+        "Financial statements (quarterly)",
+        "Compliance certificates (quarterly)",
+        "Asset-liability management reports (monthly)"
+    ]
+    
+    if recommendation in ["APPROVE WITH CONDITIONS", "FURTHER REVIEW REQUIRED"]:
+        monitoring.extend([
+            "Cash flow projections (monthly)",
+            "Borrowing profile updates (monthly)",
+            "Portfolio quality metrics (monthly)",
+            "Management discussion and analysis (quarterly)"
+        ])
+    
+    return monitoring
+
+
+def generate_swot_analysis(entity_data: Dict, extracted_data: Dict, research: Dict) -> Dict:
+    """
+    Generate comprehensive SWOT analysis using OpenRouter API.
+    """
+    try:
+        api_key = os.getenv("GROQ_API_KEY")
+        base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+        model = os.getenv("PRIMARY_MODEL", "llama-3.3-70b-versatile")
+
+        if not api_key:
+            return generate_fallback_swot(entity_data, extracted_data, research)
+
+        # Prepare detailed context
+        company_name = entity_data.get("basic_info", {}).get("company_name", "Unknown Company")
+        sector = entity_data.get("basic_info", {}).get("sector", "Unknown Sector")
+        
+        # Extract key financial metrics
+        financial_summary = ""
+        if "annual_report" in extracted_data:
+            ar = extracted_data["annual_report"]
+            financial_summary += f"\nRevenue: {ar.get('revenue', 'N/A')}, Net Profit: {ar.get('net_profit', 'N/A')}"
+            financial_summary += f"\nTotal Assets: {ar.get('total_assets', 'N/A')}, Liabilities: {ar.get('total_liabilities', 'N/A')}"
+        
+        if "borrowing" in extracted_data:
+            br = extracted_data["borrowing"]
+            financial_summary += f"\nDebt-Equity Ratio: {br.get('debt_equity_ratio', 'N/A')}"
+            financial_summary += f"\nInterest Coverage: {br.get('interest_coverage', 'N/A')}"
+        
+        if "portfolio" in extracted_data:
+            pf = extracted_data["portfolio"]
+            financial_summary += f"\nNPA: {pf.get('npa_percentage', 'N/A')}%"
+
+        context = f"""Conduct a detailed SWOT analysis for credit risk assessment:
+
+Company: {company_name}
+Sector: {sector}
+
+Financial Metrics:{financial_summary}
+
+Market Research Insights:
+- Sector: {research.get('sector_analysis', {}).get('sector', sector)}
+- Market Sentiment: {research.get('market_sentiment', {}).get('sentiment', 'neutral')}
+- Key Trends: {', '.join(research.get('sector_analysis', {}).get('trends', [])[:3])}
+
+Based on this data, generate a comprehensive SWOT analysis specific to this company's credit profile."""
+
+        prompt = """Return ONLY valid JSON with this exact structure (no markdown, no extra text):
+{
+  "strengths": ["specific strength 1", "specific strength 2", "specific strength 3", "specific strength 4"],
+  "weaknesses": ["specific weakness 1", "specific weakness 2", "specific weakness 3", "specific weakness 4"],
+  "opportunities": ["specific opportunity 1", "specific opportunity 2", "specific opportunity 3", "specific opportunity 4"],
+  "threats": ["specific threat 1", "specific threat 2", "specific threat 3", "specific threat 4"]
+}
+
+Make each point specific to the company's financial data and sector context. Focus on credit risk factors."""
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": context},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.4,
+            "max_tokens": 1500
+        }
+
+        response = requests.post(
+            f"{base_url}/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+
+        if response.status_code == 200:
+            content = response.json()["choices"][0]["message"]["content"].strip()
+            
+            # Parse JSON with cleanup
+            if "```json" in content:
+                start = content.find("```json") + 7
+                end = content.find("```", start)
+                content = content[start:end].strip()
+            elif "```" in content:
+                start = content.find("```") + 3
+                end = content.find("```", start)
+                content = content[start:end].strip()
+            
+            swot = json.loads(content)
+            
+            # Validate structure
+            required_keys = ["strengths", "weaknesses", "opportunities", "threats"]
+            if all(key in swot for key in required_keys):
+                return swot
+            else:
+                return generate_fallback_swot(entity_data, extracted_data, research)
+        else:
+            return generate_fallback_swot(entity_data, extracted_data, research)
+
+    except Exception as e:
+        print(f"SWOT generation error: {e}")
+        return generate_fallback_swot(entity_data, extracted_data, research)
+
+
+def generate_fallback_swot(entity_data: Dict, extracted_data: Dict, research: Dict) -> Dict:
+    """Generate fallback SWOT if LLM fails."""
+    return {
+        "strengths": [
+            "Established market presence",
+            "Diversified revenue streams",
+            "Strong management team",
+            "Healthy financial ratios"
+        ],
+        "weaknesses": [
+            "High debt levels",
+            "Limited geographic presence",
+            "Dependence on key customers",
+            "Working capital constraints"
+        ],
+        "opportunities": [
+            "Market expansion potential",
+            "Digital transformation",
+            "New product segments",
+            "Strategic partnerships"
+        ],
+        "threats": [
+            "Intense market competition",
+            "Regulatory changes",
+            "Economic uncertainty",
+            "Technology disruption"
+        ]
+    }

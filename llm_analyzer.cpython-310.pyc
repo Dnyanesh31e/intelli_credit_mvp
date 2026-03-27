@@ -1,0 +1,84 @@
+"""
+Entity management for storing and retrieving entity information.
+"""
+import json
+from datetime import datetime
+from typing import Dict, Optional
+
+
+class EntityManager:
+    """Manages entity data in-memory (can be extended to database)."""
+    
+    def __init__(self):
+        self.entities = {}
+        self.current_entity_id = None
+    
+    def create_entity(self, entity_data: Dict) -> str:
+        """Create a new entity and return entity ID."""
+        entity_id = f"ENT_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        
+        self.entities[entity_id] = {
+            "entity_id": entity_id,
+            "created_at": datetime.now().isoformat(),
+            "basic_info": entity_data.get("basic_info", {}),
+            "loan_details": entity_data.get("loan_details", {}),
+            "documents": {},
+            "classifications": {},
+            "extracted_data": {},
+            "secondary_research": {},
+            "analysis": {},
+            "status": "created"
+        }
+        
+        self.current_entity_id = entity_id
+        return entity_id
+    
+    def update_entity(self, entity_id: str, field: str, data: Dict):
+        """Update specific field of an entity."""
+        if entity_id in self.entities:
+            self.entities[entity_id][field] = data
+            self.entities[entity_id]["updated_at"] = datetime.now().isoformat()
+    
+    def get_entity(self, entity_id: str) -> Optional[Dict]:
+        """Retrieve entity data."""
+        return self.entities.get(entity_id)
+    
+    def add_document(self, entity_id: str, doc_type: str, doc_data: Dict):
+        """Add document to entity."""
+        if entity_id in self.entities:
+            self.entities[entity_id]["documents"][doc_type] = doc_data
+    
+    def update_classification(self, entity_id: str, doc_id: str, classification: Dict):
+        """Update document classification."""
+        if entity_id in self.entities:
+            self.entities[entity_id]["classifications"][doc_id] = classification
+    
+    def add_extracted_data(self, entity_id: str, doc_type: str, data: Dict):
+        """Add extracted data for a document type."""
+        if entity_id in self.entities:
+            self.entities[entity_id]["extracted_data"][doc_type] = data
+    
+    def add_secondary_research(self, entity_id: str, research_data: Dict):
+        """Add secondary research data."""
+        if entity_id in self.entities:
+            self.entities[entity_id]["secondary_research"] = research_data
+    
+    def add_analysis(self, entity_id: str, analysis_data: Dict):
+        """Add final analysis and recommendation."""
+        if entity_id in self.entities:
+            self.entities[entity_id]["analysis"] = analysis_data
+            self.entities[entity_id]["status"] = "completed"
+    
+    def get_all_entities(self) -> Dict:
+        """Get all entities."""
+        return self.entities
+    
+    def export_entity(self, entity_id: str) -> str:
+        """Export entity data as JSON string."""
+        if entity_id in self.entities:
+            return json.dumps(self.entities[entity_id], indent=2)
+        return "{}"
+
+
+# Global entity manager instance
+entity_manager = EntityManager()

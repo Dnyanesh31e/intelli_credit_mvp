@@ -1,0 +1,261 @@
+import os
+import json
+import requests
+
+# Try to import OpenAI for NVIDIA NIM API
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+    OpenAI = None
+
+
+def analyze_document_with_llm(text: str, document_type: str) -> dict:
+    """
+    Analyze document using OpenRouter API with document-type-specific prompts.
+
+    Args:
+        text: Extracted document text
+        document_type: Classified document type
+
+    Returns:
+        Structured analysis dictionary
+    """
+    if OPENAI_AVAILABLE:
+        return analyze_with_openrouter(text, document_type)
+    else:
+        return analyze_with_requests(text, document_type)
+
+
+def analyze_with_openrouter(text: str, document_type: str) -> dict:
+    """Analyze using Groq API with OpenAI SDK."""
+    api_key = os.getenv("GROQ_API_KEY")
+    base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+    model = os.getenv("PRIMARY_MODEL", "llama-3.3-70b-versatile")
+
+    if not api_key:
+        return get_fallback_analysis(document_type, "GROQ_API_KEY not found in environment variables")
+
+    # Limit text length (first 15000 chars)
+    text_sample = text[:15000]
+
+    # Build document-specific instructions
+    specific_instructions = get_document_specific_instructions(document_type)
+
+    # Create prompt
+    system_prompt = f"""You are a credit analysis expert. Analyze the provided document and extract structured credit-relevant insights.
+
+Document Type: {document_type}
+
+{specific_instructions}
+
+Return ONLY valid JSON with this exact structure:
+{{
+    "document_type": "{document_type}",
+    "company_name": "",
+    "reporting_period": "",
+    "document_confidence": 0.0,
+    "company_snapshot": {{}},
+    "key_signals": [],
+    "financial_metrics": {{}},
+    "governance_metrics": {{}},
+    "compliance_flags": [],
+    "risk_flags": [],
+    "positive_signals": [],
+    "risk_score": 0,
+    "risk_level": "",
+    "recommendation": "",
+    "cam_summary": ""
+}}
+
+Extract all relevant information. Be thorough but concise."""
+
+    user_prompt = f"Document text:\n\n{text_sample}"
+
+    try:
+        client = OpenAI(
+            base_url=base_url,
+            api_key=api_key
+        )
+
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.3,
+            max_tokens=2000
+        )
+
+        content = completion.choices[0].message.content.strip()
+
+        # Parse JSON
+        analysis = parse_json_response(content)
+        return analysis
+
+    except Exception as e:
+        return get_fallback_analysis(document_type, f"Groq API error: {str(e)}")
+
+
+def analyze_with_requests(text: str, document_type: str) -> dict:
+    """Fallback analysis using direct HTTP requests."""
+    api_key = os.getenv("GROQ_API_KEY")
+    base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+    model = os.getenv("PRIMARY_MODEL", "llama-3.3-70b-versatile")
+
+    if not api_key:
+        return get_fallback_analysis(document_type, "API key not found")
+
+    text_sample = text[:15000]
+    specific_instructions = get_document_specific_instructions(document_type)
+
+    system_prompt = f"""You are a credit analysis expert. Analyze the provided document and extract structured credit-relevant insights.
+
+Document Type: {document_type}
+
+{specific_instructions}
+
+Return ONLY valid JSON with this exact structure:
+{{
+    "document_type": "{document_type}",
+    "company_name": "",
+    "reporting_period": "",
+    "document_confidence": 0.0,
+    "company_snapshot": {{}},
+    "key_signals": [],
+    "financial_metrics": {{}},
+    "governance_metrics": {{}},
+    "compliance_flags": [],
+    "risk_flags": [],
+    "positive_signals": [],
+    "risk_score": 0,
+    "risk_level": "",
+    "recommendation": "",
+    "cam_summary": ""
+}}
+
+Extract all relevant information. Be thorough but concise."""
+
+    user_prompt = f"Document text:\n\n{text_sample}"
+
+    try:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 2000
+        }
+
+        response = requests.post(
+            f"{base_url}/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+
+        response.raise_for_status()
+        response_data = response.json()
+        content = response_data["choices"][0]["message"]["content"].strip()
+
+        analysis = parse_json_response(content)
+        return analysis
+
+    except Exception as e:
+        return get_fallback_analysis(document_type, f"API request failed: {str(e)}")
+
+
+def get_document_specific_instructions(document_type: str) -> str:
+    """Get analysis instructions specific to document type."""
+
+    instructions = {
+        "annual_return_mgt7": """
+Focus on:
+- Company identity and registration details
+- Filing period and compliance status
+- Governance indicators (board composition, KMP changes)
+- Compliance declarations and certifications
+- Unusual disclosures or governance red flags
+- Shareholder patterns and changes
+""",
+        "financial_results_quarterly": """
+Focus on:
+- Assets, liabilities, debt, and equity figures
+- Borrowings and debt obligations
+- Liquidity indicators (current ratio, working capital)
+- Profitability metrics
+- Auditor remarks or qualifications
+- Financial red flags (losses, declining margins, high leverage)
+""",
+        "debt_covenant_disclosure": """
+Focus on:
+- Asset cover ratio for debt securities
+- Listed debt securities details
+- Covenant compliance status
+- Any breaches or exceptions noted
+- Debt obligations and terms
+- Lender risk flags
+""",
+        "unknown_credit_doc": """
+Focus on:
+- Best-effort extraction of company name
+- Document summary and purpose
+- Any financial or credit-relevant information
+- Risk indicators or unusual clauses
+- Compliance mentions
+"""
+    }
+
+    return instructions.get(document_type, instructions["unknown_credit_doc"])
+
+
+def parse_json_response(content: str) -> dict:
+    """Parse JSON response with cleanup attempts."""
+    try:
+        # Try direct parse
+        return json.loads(content)
+    except json.JSONDecodeError:
+        # Try to extract JSON from markdown code blocks
+        if "```json" in content:
+            start = content.find("```json") + 7
+            end = content.find("```", start)
+            content = content[start:end].strip()
+        elif "```" in content:
+            start = content.find("```") + 3
+            end = content.find("```", start)
+            content = content[start:end].strip()
+
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            raise Exception("Failed to parse JSON response")
+
+
+def get_fallback_analysis(document_type: str, error_msg: str) -> dict:
+    """Return fallback structure if LLM analysis fails."""
+    return {
+        "document_type": document_type,
+        "company_name": "Unknown",
+        "reporting_period": "Unknown",
+        "document_confidence": 0.0,
+        "company_snapshot": {"error": error_msg},
+        "key_signals": ["Analysis failed - using fallback"],
+        "financial_metrics": {},
+        "governance_metrics": {},
+        "compliance_flags": ["LLM analysis error"],
+        "risk_flags": ["Unable to complete analysis"],
+        "positive_signals": [],
+        "risk_score": 50,
+        "risk_level": "Moderate",
+        "recommendation": "Manual review required",
+        "cam_summary": f"Automated analysis failed: {error_msg}"
+    }
